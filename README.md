@@ -129,7 +129,6 @@ private void doWrite() throws IOException {
 ## Process
 ```java
 private void process(){
-	bufferOut.clear();
 	bufferIn.flip();
 	// Do what the server is supposed to do with packets he receives
 	bufferIn.compact();
