@@ -101,7 +101,11 @@ private void updateInterestOps(){
 	var ops=0;
 	if(bufferIn.hasRemaining() && !closed) ops |= SelectionKey.OP_READ;
 	if(bufferOut.position()!=0) ops|=SelectionKey.OP_WRITE;
-	if(ops==0) silentlyClose(key);
+	if(ops==0){
+		silentlyClose(key);
+		return;
+	}
+	key.interestOps(ops);
 }
 ```
 ## DoRead and DoWrite
