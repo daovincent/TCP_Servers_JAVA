@@ -19,6 +19,9 @@ public class ServerNonBlockingDupCleaner {
     private final Selector selector;
 
     private final ConsoleThreadSafe consoleThreadSafe = new ConsoleThreadSafe();
+
+    private final HashMap<SelectionKey, Integer> map = new HashMap<>();
+    private int deletedCounter;
     private State state = State.WORKING;
 
     public ServerNonBlockingDupCleaner(int port) throws IOException {
@@ -62,7 +65,7 @@ public class ServerNonBlockingDupCleaner {
             return;
         }
         switch (cmd) {
-            case "INFO" -> consoleThreadSafe.printInfo();
+            case "INFO" -> printInfo();
             case "SHUTDOWN" -> state = State.SHUTDOWN;
             case "SHUTDOWNNOW" -> state = State.SHUTDOWN_NOW;
             default -> {
@@ -100,7 +103,7 @@ public class ServerNonBlockingDupCleaner {
         sc.configureBlocking(false);
         var sk = sc.register(selector, SelectionKey.OP_READ);
         sk.attach(new Context(sk, this));
-        consoleThreadSafe.incrementDeleted(sk, 0);
+        incrementDeleted(sk, 0);
     }
 
     /***
@@ -182,9 +185,7 @@ public class ServerNonBlockingDupCleaner {
 
     private static class ConsoleThreadSafe {
         private final Object lock = new Object();
-        private final HashMap<SelectionKey, Integer> map = new HashMap<>();
         private final BlockingQueue<String> queue = new ArrayBlockingQueue<>(10);
-        private int deletedCounter;
 
         public void sendCommand(String command) {
             synchronized (lock) {
@@ -197,24 +198,21 @@ public class ServerNonBlockingDupCleaner {
                 return queue.poll();
             }
         }
+    }
 
-        public void deleteClient(SelectionKey client) {
-            synchronized (lock) {
-                map.remove(client);
-            }
-        }
 
-        public void incrementDeleted(SelectionKey client, int increment) {
-            synchronized (lock) {
-                deletedCounter += increment;
-                map.merge(client, increment, Integer::sum);
-            }
-        }
+    public void deleteClient(SelectionKey client) {
+            map.remove(client);
+    }
 
-        public void printInfo() {
-            System.out.println("Number of bytes deleted in total: " + deletedCounter);
-            map.forEach((key, integer) -> System.out.println("Client with address " + key.channel() + " deleted " + integer + " bytes since its connection"));
-        }
+    public void incrementDeleted(SelectionKey client, int increment) {
+            deletedCounter += increment;
+            map.merge(client, increment, Integer::sum);
+    }
+
+    public void printInfo() {
+        System.out.println("Number of bytes deleted in total: " + deletedCounter);
+        map.forEach((key, integer) -> System.out.println("Client with address " + key.channel() + " deleted " + integer + " bytes since its connection"));
     }
 
     private static class Context {
@@ -258,7 +256,7 @@ public class ServerNonBlockingDupCleaner {
         private void silentlyClose() {
             try {
                 closed = false;
-                server.consoleThreadSafe.deleteClient(key);
+                server.deleteClient(key);
                 sc.close();
             } catch (IOException ignored) {
                 // ignored
@@ -284,17 +282,17 @@ public class ServerNonBlockingDupCleaner {
 
             byte lastByte = bufferIn.get();
             bufferOut.put(lastByte);
-            deleted++;
             while (bufferIn.hasRemaining() && bufferOut.hasRemaining()) {
                 var actualByte = bufferIn.get();
                 if (actualByte != lastByte) {
-                    deleted++;
                     lastByte = actualByte;
                     bufferOut.put(actualByte);
+                }else {
+                    deleted++;
                 }
             }
 
-            server.consoleThreadSafe.incrementDeleted(key, deleted);
+            server.incrementDeleted(key, deleted);
             bufferIn.compact();
         }
     }
